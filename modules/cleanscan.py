@@ -1,18 +1,20 @@
 import cv2
-import os
+import numpy as np
+from PIL import Image
 
-def blur_faces(image_path, output_path):
-    image = cv2.imread(image_path)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-    # Load Haar cascade for face detection
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
-
+def remove_sensitive_content(pil_image):
+    """
+    Detect faces and blur them for privacy.
+    Input: PIL Image
+    Output: PIL Image with blurred faces
+    """
+    img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
     for (x, y, w, h) in faces:
-        face = image[y:y+h, x:x+w]
-        blurred = cv2.GaussianBlur(face, (99, 99), 30)
-        image[y:y+h, x:x+w] = blurred
-
-    cv2.imwrite(output_path, image)
-    return output_path, len(faces)
+        face = img[y:y+h, x:x+w]
+        face = cv2.GaussianBlur(face, (99, 99), 30)
+        img[y:y+h, x:x+w] = face
+    return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))

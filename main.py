@@ -1,150 +1,137 @@
-import datetime
-import os
+import flet as ft
+import io, base64
+from PIL import Image
 
-from kivy.app import App
-from kivy.uix.boxlayout import BoxLayout
-from kivy.properties import StringProperty
-from kivy.lang import Builder
-
-# Import your image processing modules
-from modules.safeshare import add_watermark
-from modules.cleanscan import blur_faces
-from modules.noiseguard import apply_noiseguard
-
-Builder.load_file("imageshield.kv")
+# Import your backend modules
+from modules.cleanscan import remove_sensitive_content
+from modules.safeshare import generate_safe_preview
+from modules.noiseguard import add_privacy_noise
 
 
-class MainScreen(BoxLayout):
-    selected_image = StringProperty('')  # Holds the current image path
+def main(page: ft.Page):
+    page.title = "🛡️ ImageShield Mobile"
+    page.bgcolor = "#0d1117"
+    page.theme_mode = ft.ThemeMode.DARK
+    page.horizontal_alignment = "center"
+    page.vertical_alignment = "center"
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        os.makedirs("assets", exist_ok=True)
-        self.audit_log = []   # ✅ audit log initialized here
+    # App Header
+    header = ft.Row(
+        [
+            ft.Image(src="assets/logo.png", width=50, height=50),
+            ft.Text("ImageShield", size=26, weight=ft.FontWeight.BOLD),
+        ],
+        alignment="center",
+    )
 
-    def on_file_selected(self, filechooser, selection):
-        """Triggered when an image is selected from FileChooser."""
-        if selection:
-            self.selected_image = selection[0]
-            self.ids.preview.source = self.selected_image
-            self.ids.preview.reload()
-            self.ids.summary.text = f"📷 Selected: {os.path.basename(self.selected_image)}"
+    # Tabs for modules
+    tabs = ft.Tabs(
+        selected_index=0,
+        animation_duration=400,
+        indicator_color="#00C4FF",
+        tabs=[
+            ft.Tab(text="CleanScan", icon=ft.Icons.SEARCH),
+            ft.Tab(text="SafeShare", icon=ft.Icons.LOCK),
+            ft.Tab(text="NoiseGuard", icon=ft.Icons.GRID_VIEW),
+        ],
+        expand=1,
+    )
 
-    def run_selected_module(self):
-        """Applies the selected ImageShield module."""
-        module = self.ids.module_selector.text
-        input_path = self.selected_image
+    # Shared widgets
+    file_picker = ft.FilePicker()
+    page.overlay.append(file_picker)
+    uploaded_img = ft.Image(width=300, height=250, fit=ft.ImageFit.CONTAIN)
+    output_img = ft.Image(width=300, height=250, fit=ft.ImageFit.CONTAIN)
+    run_btn = ft.ElevatedButton("▶ Run Module", color="white", bgcolor="#00C4FF", width=250)
+    status_text = ft.Text("", size=16)
 
-        if not input_path:
-            self.ids.summary.text = "⚠️ Please select an image first."
+    # Upload handler
+    def on_file_picked(e):
+        if e.files:
+            uploaded_img.src = e.files[0].path
+            status_text.value = f"📷 Loaded: {e.files[0].name}"
+            page.update()
+
+    file_picker.on_result = on_file_picked
+    upload_btn = ft.ElevatedButton("📤 Upload Image", on_click=lambda e: file_picker.pick_files(allow_multiple=False))
+
+    # 🧠 Module runner
+    def process(e):
+        if not file_picker.result or not file_picker.result.files:
+            page.snack_bar = ft.SnackBar(ft.Text("⚠️ Please upload an image first!"))
+            page.snack_bar.open = True
+            page.update()
             return
 
-        output_path = os.path.join("assets", "processed.jpg")
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        file_path = file_picker.result.files[0].path
+        img = Image.open(file_path)
 
-        # === CleanScan ===
-        if module == "CleanScan":
-            result_path, face_count = blur_faces(input_path, output_path)
-            self.ids.preview.source = result_path
-            self.ids.summary.text = f"✅ CleanScan: {face_count} face(s) blurred."
-            entry = f"[{timestamp}] {module} → faces blurred: {face_count}"
-            self.audit_log.append(entry)
+        # Process based on selected tab
+        if tabs.selected_index == 0:  # CleanScan
+            out = remove_sensitive_content(img)
+            status_text.value = "✅ CleanScan complete! Faces blurred."
+        elif tabs.selected_index == 1:  # SafeShare
+            out = generate_safe_preview(img)
+            status_text.value = "✅ SafeShare done! Metadata stripped & watermark added."
+        else:  # NoiseGuard
+            out = add_privacy_noise(img)
+            status_text.value = "✅ NoiseGuard applied! Privacy filter added."
 
-        # === SafeShare ===
-        elif module == "SafeShare":
-            text = self.ids.watermark_text.text or "SAFE SHARE"
-            opacity = int(self.ids.watermark_opacity.value)
-            angle = int(self.ids.watermark_angle.value)
-            position = self.ids.watermark_position.text
+        # Show processed image
+        buf = io.BytesIO()
+        out.save(buf, format="PNG")
+        output_img.src_base64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        page.update()
 
-            result_path = add_watermark(
-                input_path,
-                output_path,
-                text=text,
-                opacity=opacity,
-                angle=angle,
-                position=position
-            )
-            self.ids.preview.source = result_path
-            self.ids.summary.text = (
-                f"✅ SafeShare: Watermark '{text}' added, opacity={opacity}, "
-                f"angle={angle}, position={position}. Metadata removed."
-            )
-            entry = f"[{timestamp}] {module} → text='{text}', opacity={opacity}, angle={angle}, position={position}"
-            self.audit_log.append(entry)
+    run_btn.on_click = process
 
-        # === NoiseGuard ===
-        elif module == "NoiseGuard":
-            mode = self.ids.noise_mode.text
-            intensity = int(self.ids.noise_intensity.value)
+    # Tab content layout
+    def build_tab(title):
+        return ft.Container(
+            ft.Column(
+                [
+                    ft.Text(title, size=18),
+                    upload_btn,
+                    uploaded_img,
+                    run_btn,
+                    output_img,
+                    status_text,
+                ],
+                alignment="center",
+                horizontal_alignment="center",
+                spacing=10,
+            ),
+            padding=20,
+        )
 
-            result_path, mode = apply_noiseguard(
-                input_path,
-                output_path,
-                mode=mode,
-                intensity=intensity
-            )
-            self.ids.preview.source = result_path
-            self.ids.summary.text = f"✅ NoiseGuard: Applied {mode} filter with intensity {intensity}."
-            entry = f"[{timestamp}] {module} → mode={mode}, intensity={intensity}"
-            self.audit_log.append(entry)
+    clean_tab = build_tab("🔍 CleanScan: Face Blur")
+    safeshare_tab = build_tab("🔐 SafeShare: Watermark")
+    noise_tab = build_tab("🧊 NoiseGuard: Filters")
 
-        else:
-            self.ids.summary.text = "⚠️ Please select a valid module."
+    tab_views = ft.Container(
+        ft.Tabs(
+            selected_index=0,
+            tabs=[
+                ft.Tab(text="CleanScan", content=clean_tab),
+                ft.Tab(text="SafeShare", content=safeshare_tab),
+                ft.Tab(text="NoiseGuard", content=noise_tab),
+            ],
+            expand=1,
+            animation_duration=500,
+            indicator_color="#00C4FF",
+        ),
+        expand=True,
+    )
 
-        # Refresh preview image
-        self.ids.preview.reload()
+    # Main layout
+    layout = ft.Column(
+        [header, ft.Divider(color="#222"), tab_views],
+        alignment="center",
+        horizontal_alignment="center",
+        spacing=10,
+    )
 
-    def clear_history(self):
-        """Clears image and summary panel."""
-        self.selected_image = ''
-        self.ids.preview.source = ''
-        self.ids.summary.text = "Summary will appear here..."
-        self.ids.module_selector.text = "Choose Module"
-
-    def download_image(self):
-        """Indicates saved image status."""
-        if os.path.exists("assets/processed.jpg"):
-            self.ids.summary.text += "\n📥 Saved to assets/processed.jpg"
-        else:
-            self.ids.summary.text += "\n⚠️ No processed image found."
-
-    def on_module_selected(self, spinner, text):
-        """Show/hide dynamic controls based on module."""
-        # Hide all controls
-        for cid in [
-            "watermark_text", "watermark_opacity", "watermark_angle",
-            "watermark_position", "noise_mode", "noise_intensity"
-        ]:
-            self.ids[cid].opacity = 0
-
-        if text == "SafeShare":
-            for cid in ["watermark_text", "watermark_opacity", "watermark_angle", "watermark_position"]:
-                self.ids[cid].opacity = 1
-
-        elif text == "NoiseGuard":
-            for cid in ["noise_mode", "noise_intensity"]:
-                self.ids[cid].opacity = 1
-
-    def show_audit_log(self):
-        """Displays last 5 log entries in summary panel."""
-        if not self.audit_log:
-            self.ids.summary.text = "📜 No actions logged yet."
-        else:
-            self.ids.summary.text = "\n".join(self.audit_log[-5:])
-
-    def export_audit_log(self):
-        """Exports full audit log to file."""
-        with open("assets/audit_log.txt", "w") as f:
-            f.write("\n".join(self.audit_log))
-        self.ids.summary.text += "\n📂 Audit log saved to assets/audit_log.txt"
+    page.add(layout)
 
 
-class ImageShieldApp(App):
-    def build(self):
-        self.title = "🛡️ ImageShield"
-        return MainScreen()
-
-
-if __name__ == "__main__":
-    ImageShieldApp().run()
+ft.app(target=main)

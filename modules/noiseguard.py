@@ -1,24 +1,23 @@
 import cv2
 import numpy as np
+from PIL import Image
 
-def apply_noiseguard(image_path, output_path, mode="pixelate", intensity=10):
-    image = cv2.imread(image_path)
+def add_privacy_noise(pil_image, mode="pixelate", intensity=10):
+    """
+    Apply pixelation, noise, or blur filters for privacy.
+    """
+    img = np.array(pil_image)
 
     if mode == "pixelate":
-        h, w = image.shape[:2]
-        temp = cv2.resize(image, (w // intensity, h // intensity), interpolation=cv2.INTER_LINEAR)
-        result = cv2.resize(temp, (w, h), interpolation=cv2.INTER_NEAREST)
-
+        small = cv2.resize(img, (img.shape[1] // intensity, img.shape[0] // intensity))
+        result = cv2.resize(small, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
     elif mode == "blur":
         k = intensity if intensity % 2 == 1 else intensity + 1
-        result = cv2.GaussianBlur(image, (k, k), 0)
-
+        result = cv2.GaussianBlur(img, (k, k), 0)
     elif mode == "noise":
-        noise = np.random.normal(0, intensity, image.shape).astype(np.uint8)
-        result = cv2.add(image, noise)
-
+        noise = np.random.randint(0, intensity, img.shape, dtype='uint8')
+        result = cv2.add(img, noise)
     else:
-        result = image
+        result = img
 
-    cv2.imwrite(output_path, result)
-    return output_path, mode
+    return Image.fromarray(result)

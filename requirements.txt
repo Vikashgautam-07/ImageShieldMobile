@@ -1,0 +1,6 @@
+flet>=0.23.0
+pillow
+opencv-python
+pandas
+flet[desktop]   # For packaging desktop app
+flet[web]       # For web deployment
